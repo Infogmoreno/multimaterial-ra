@@ -1,0 +1,419 @@
+<html>
+  <head>
+    <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+    <script src="https://unpkg.com/aframe-event-set-component@5.0.0/dist/aframe-event-set-component.min.js"></script>
+    <script src="https://unpkg.com/aframe-proxy-event-component/dist/aframe-proxy-event-component.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.1.0/dist/aframe-extras.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+    <script src="aframe-hdr-environment.js"></script>
+    <script src="RGBELoader.js"></script>
+    <script>
+      AFRAME.registerComponent("material-values", {
+        multiple: true,
+        schema: {
+          materialName: { type: "string", default: "" },
+          color: { type: "color", default: "" },
+          map: { type: "string", default: "" },
+          metalness: { type: "number", default: -1, min: 0, max: 1 },
+          roughness: { type: "number", default: -1, min: 0, max: 1 },
+          opacity: { type: "number", default: 1, min: 0, max: 1 },
+        },
+
+        events: {
+          "model-loaded": function () {
+            this.update();
+          },
+        },
+
+        init() {
+          this.rendererSystem = this.el.sceneEl.systems.renderer;
+        },
+
+        update: function () {
+          const mesh = this.el.getObject3D("mesh");
+          if (!mesh) return;
+
+          const materialName = this.data.materialName;
+          const color = this.data.color;
+          const map = this.data.map;
+          const metalness = this.data.metalness;
+          const roughness = this.data.roughness;
+          const opacity = this.data.opacity;
+          mesh.traverse((node) => {
+            if (node.material && node.material.name === materialName) {
+              if (color !== "") {
+                node.material.color.set(color);
+                // The following line calls node.material.color.convertSRGBToLinear() when <a-scene renderer="colorManagement:true">
+                this.rendererSystem.applyColorCorrection(node.material.color);
+              } else {
+                this.data.color = "#" + node.material.color.getHexString();
+              }
+
+              if (metalness !== -1) {
+                node.material.metalness = metalness;
+              } else {
+                this.data.metalness = node.material.metalness;
+              }
+
+              if (roughness !== -1) {
+                node.material.roughness = roughness;
+              } else {
+                this.data.roughness = node.material.roughness;
+              }
+
+              if (map) {
+                const imageSrc = map;
+                const loader = new THREE.TextureLoader();
+                loader.load(
+                  imageSrc,
+                  function (texture) {
+                    if (node.material.map) {
+                      texture.encoding = node.material.map.encoding;
+                      texture.flipY = node.material.map.flipY;
+                      texture.offset.copy(node.material.map.offset);
+                      texture.repeat.copy(node.material.map.repeat);
+                      texture.wrapS = node.material.map.wrapS;
+                      texture.wrapT = node.material.map.wrapT;
+                      node.material.map.dispose();
+                    }
+                    node.material.map = texture;
+                    texture.needsUpdate = true;
+                    node.material.needsUpdate = true;
+                  },
+                  undefined,
+                  function () {
+                    console.error(`Error loading ${imageSrc}`);
+                  }
+                );
+              }
+              node.material.opacity = opacity;
+              node.material.transparent = opacity < 1;
+              node.material.needsUpdate = true;
+            }
+          });
+        },
+      });
+      // Register the 'hdri' component
+      AFRAME.registerComponent("hdri", {
+        schema: {
+          url: { type: "string" }, // Define the data schema
+        },
+        init: function () {
+          const { url } = this.data; // Get the URL from the component data
+          const sceneEl = this.el; // Reference to the A-Frame scene element
+          const scene = sceneEl.object3D; // THREE.js scene object
+          const renderer = sceneEl.renderer; // A-Frame renderer
+          // Set up the HDRI loader
+          const rgbeLoader = new THREE.RGBELoader();
+          rgbeLoader.setDataType(THREE.UnsignedByteType);
+          rgbeLoader.load(url, (texture) => {
+            // PMREM Generator for converting the texture to a suitable format
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+            const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+            scene.environment = envMap; // Set the scene environment
+            texture.dispose();
+            pmremGenerator.dispose();
+          });
+        },
+      });
+    </script>
+
+    <style>
+      body {
+        width: 100%;
+        height: 90%;
+        z-index: 0;
+      }
+
+      #overlay {
+        display: inline;
+        position: Fixed;
+        top: 45%;
+        right: -1%;
+      }
+      /* Show the DOM Overlay element while active (:xr-overlay pseudoclass) */
+      #overlay:xr-overlay {
+        display: inline;
+        position: absolute;
+        top: 45%;
+        right: -1%;
+      }
+      #menuUI {
+        display: grid;
+        width: 100%;
+        height: auto;
+        grid-template-rows: auto auto auto auto auto auto;
+        justify-content: end;
+      }
+
+      .boton {
+        border-radius: 6px;
+        color: white;
+        font-size: 10px;
+        font-family: Roboto;
+        padding: 5px 1px;
+        margin: 5px 5px;
+        width: 67px;
+        height: 20px;
+        text-align: center;
+        cursor: pointer;
+      }
+      .boton:hover {
+        opacity: 0.4;
+      }
+    </style>
+  </head>
+  <body>
+    <a-scene
+      renderer="antialias: true;
+                   colorManagement: true;
+                   sortObjects: true;
+                   physicallyCorrectLights: false;
+                   maxCanvasWidth: 1920;
+                   maxCanvasHeight: 1920;
+                   exposure: 0.5"
+      webxr="requiredFeatures: hit-test,local-floor;
+                optionalFeatures: dom-overlay,unbounded;
+                overlayElement: #overlay;"
+      ar-hit-test="target:#grupodummie"
+      hdr-environment="url: https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/photostudio_07_1k_correg2.hdr?v=1701622125506; showBackground: false; showGround: false; groundSize: 15"
+      xr-mode-ui="XRMode: ar"
+    >
+      <a-assets>
+        <a-asset-item
+          id="dummie"
+          src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/Dummie_baile_Breakdance.glb?v=1701265948132"
+          response-type="arraybuffer"
+          crossorigin="anonymous"
+        ></a-asset-item>
+        <a-asset-item
+          id="robotmacaco"
+          src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/AndroidJM_Robot_Macaco_Bl-4.0.glb?v=1703176758205"
+          response-type="arraybuffer"
+          crossorigin="anonymous"
+        ></a-asset-item>
+        <audio
+          id="musica"
+          src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/Musica.mp3?v=1703235483810"
+          crossorigin="anonymous"
+          preload="auto"
+        ></audio>
+      </a-assets>
+
+      <a-entity id="grupodummie" position="0 0 0" scale="0.6 0.6 0.6">
+        <a-entity
+          id="dum"
+          class="clickable"
+          position="0 0.37 -2"
+          gltf-model="#dummie"
+          animation-mixer="clip: Action"
+          material-values__plas="materialName:mat_plastico_base;color:#F4F79C;metalness:0.3;roughness:0.4"
+          visible="false"
+        ></a-entity>
+        <a-entity
+          id="robot"
+          class="clickable"
+          position="0 -0.37 -2"
+          gltf-model="#robotmacaco"
+          animation-mixer="clip: Action"
+          material-values__plas="materialName:mat_robot;color:#FFFFFFC;metalness:0.45;roughness:0.4"
+          visible="true"
+        >
+        </a-entity>
+      </a-entity>
+      <a-entity
+        sound="src: url(https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/Musica.mp3?v=1703235483810); autoplay: true; loop: true"
+        position="0 0 0"
+      ></a-entity>
+      <a-entity
+        camera
+        look-controls
+        wasd-controls="acceleration: 10"
+        position="0 1.6 0"
+      >
+        <a-entity
+          cursor="rayOrigin: mouse"
+          position="0 0 -1.75"
+          geometry="primitive: ring; radiusInner: 0.014; radiusOuter: 0.017"
+          material="color: cyan; shader: flat;opacity:0.4"
+          raycaster="objects: .clickable"
+        ></a-entity>
+      </a-entity>
+    </a-scene>
+
+    <div id="overlay">
+      <div id="menuUI">
+        <div id="btn_madera" class="boton">
+          <img
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/icon_madera.png?v=1701784291033"
+            style="width: 50%"
+          />
+        </div>
+        <div id="btn_metal" class="boton">
+          <img
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/icon_metal.png?v=1701784291342"
+            style="width: 50%"
+          />
+        </div>
+        <div id="btn_piedra" class="boton">
+          <img
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/icon_piedra.png?v=1701784291708"
+            style="width: 50%"
+          />
+        </div>
+        <div id="btn_cristal" class="boton">
+          <img
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/icon_cristal.png?v=1701784290299"
+            style="width: 50%"
+          />
+        </div>
+        <div id="btn_cromo" class="boton">
+          <img
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/icon_cromo.png?v=1701784290690"
+            style="width: 50%"
+          />
+        </div>
+        <div id="btn_plastico" class="boton">
+          <img
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/icon_plastico_mat_base.png?v=1701784292019"
+            style="width: 50%"
+          />
+        </div>
+        <div id="btn_toogle_in" class="boton">
+          <img
+            id="toogle_in"
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/toogle_in.png?v=1703178163045"
+            style="width: 50%; padding: 30px 0; visibility: true"
+          />
+          <img
+            id="toogle_out"
+            src="https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/toogle_out.png?v=1703178163564"
+            style="width: 50%; padding: 30px 0; visibility: hidden"
+          />
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const dum = document.querySelector("#dum");
+      const robot = document.querySelector("#robot");
+
+      const btn_madera = document.querySelector("#btn_madera");
+      const btn_metal = document.querySelector("#btn_metal");
+      const btn_piedra = document.querySelector("#btn_piedra");
+      const btn_cristal = document.querySelector("#btn_cristal");
+      const btn_cromado = document.querySelector("#btn_cromo");
+      const btn_plastico = document.querySelector("#btn_plastico");
+      const toogle_in = document.querySelector("#toogle_in");
+      const toogle_out = document.querySelector("#toogle_out");
+
+      btn_madera.addEventListener("mouseenter", function () {
+        dum.setAttribute("material-values__plas", {
+          materialName: "mat_plastico_base",
+          color: "#958575",
+          map: "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/madera.jpg?v=1701265421411",
+          roughness: 0.6,
+          metalness: 0.1,
+          opacity: 1,
+        });
+      });
+
+      btn_metal.addEventListener("mouseenter", function () {
+        dum.setAttribute("material-values__plas", {
+          materialName: "mat_plastico_base",
+          color: "#ffffff",
+          map: "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/metal.jpg?v=1701264499100",
+          roughness: 0.3,
+          metalness: 0.6,
+          opacity: 1,
+        });
+      });
+
+      btn_piedra.addEventListener("mouseenter", function () {
+        dum.setAttribute("material-values__plas", {
+          materialName: "mat_plastico_base",
+          color: "#908080",
+          map: "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/piedra.jpg?v=1701265420927",
+          roughness: 0.5,
+          metalness: 0.1,
+          opacity: 1,
+        });
+      });
+
+      btn_cristal.addEventListener("mouseenter", function () {
+        dum.setAttribute("material-values__plas", {
+          materialName: "mat_plastico_base",
+          color: "#AFB9C4",
+          map: "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/transparente.png?v=1701266547554",
+          roughness: 0.1,
+          metalness: 0.5,
+          opacity: 0.75,
+        });
+      });
+
+      btn_cromado.addEventListener("mouseenter", function () {
+        dum.setAttribute("material-values__plas", {
+          materialName: "mat_plastico_base",
+          color: "#ffffff",
+          map: "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/transparente.png?v=1701266547554",
+          roughness: 0.15,
+          metalness: 0.9,
+          opacity: 1,
+        });
+      });
+
+      btn_plastico.addEventListener("mouseenter", function () {
+        dum.setAttribute("material-values__plas", {
+          materialName: "mat_plastico_base",
+          color: "#F4F79C",
+          map: "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/transparente.png?v=1701266547554",
+          roughness: 0.4,
+          metalness: 0.3,
+          opacity: 1,
+        });
+      });
+
+      btn_toogle_in.addEventListener("click", function () {
+        robot.setAttribute("visible", !robot.getAttribute("visible"));
+        dum.setAttribute("visible", !dum.getAttribute("visible"));
+      });
+
+      btn_toogle_in.addEventListener("click", function () {
+        if (toogle_out.style.visibility === "hidden") {
+          toogle_in.setAttribute(
+            "src",
+            "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/toogle_out.png?v=1703178163564"
+          );
+        } else {
+          toogle_in.setAttribute(
+            "src",
+            "https://cdn.glitch.global/6be530c7-a47d-44a4-9812-663ddd7682f2/toogle_in.png?v=1703178163045"
+          );
+        }
+      });
+
+      btn_madera.addEventListener("beforexrselect", (e) => {
+        e.preventDefault();
+      });
+      btn_metal.addEventListener("beforexrselect", (e) => {
+        e.preventDefault();
+      });
+      btn_piedra.addEventListener("beforexrselect", (e) => {
+        e.preventDefault();
+      });
+      btn_cristal.addEventListener("beforexrselect", (e) => {
+        e.preventDefault();
+      });
+      btn_cromado.addEventListener("beforexrselect", (e) => {
+        e.preventDefault();
+      });
+      btn_plastico.addEventListener("beforexrselect", (e) => {
+        e.preventDefault();
+      });
+      btn_toogle_in.addEventListener("beforexrselect", (e) => {
+        e.preventDefault();
+      });
+    </script>
+  </body>
+</html>
